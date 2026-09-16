@@ -345,6 +345,102 @@ describe('历史按简历隔离', () => {
   });
 });
 
+describe('跨简历切换与合并', () => {
+  it('切走再切回后，同一字段的修改不与切换前的编辑合并', () => {
+    const a = createTestResume();
+    const b = createTestResume();
+    const originalTitle = getResume(a).title;
+
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '切换前' });
+    getState().setActiveResume(b);
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '切换后' });
+
+    expect(pastLength(a)).toBe(2);
+    getState().undoResume(a);
+    expect(getResume(a).title).toBe('切换前');
+    getState().undoResume(a);
+    expect(getResume(a).title).toBe(originalTitle);
+  });
+
+  it('基本信息字段切走再切回后同样不合并', () => {
+    const a = createTestResume();
+    const b = createTestResume();
+
+    getState().setActiveResume(a);
+    getState().updateBasicInfo(a, { fullName: '改前' });
+    getState().setActiveResume(b);
+    getState().setActiveResume(a);
+    getState().updateBasicInfo(a, { fullName: '改后' });
+
+    expect(pastLength(a)).toBe(2);
+    getState().undoResume(a);
+    expect(getResume(a).basicInfo.fullName).toBe('改前');
+  });
+
+  it('编辑器用同一 id 重复调用 setActiveResume 不会打断连续输入合并', () => {
+    const a = createTestResume();
+
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '甲' });
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '甲乙' });
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '甲乙丙' });
+
+    expect(pastLength(a)).toBe(1);
+    getState().undoResume(a);
+    expect(getResume(a).title).toBe('新简历 1');
+  });
+
+  it('新建简历切走活动简历后，回到原简历的同字段修改不合并', () => {
+    const a = createTestResume();
+
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '旧' });
+    createTestResume();
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '新' });
+
+    expect(pastLength(a)).toBe(2);
+    getState().undoResume(a);
+    expect(getResume(a).title).toBe('旧');
+  });
+
+  it('复制简历切走活动简历后，回到原简历的同字段修改不合并', () => {
+    const a = createTestResume();
+
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '旧' });
+    getState().duplicateResume(a);
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '新' });
+
+    expect(pastLength(a)).toBe(2);
+  });
+
+  it('封存合并键不影响撤销/重做状态与数据', () => {
+    const a = createTestResume();
+    const b = createTestResume();
+
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '切换前' });
+    getState().setActiveResume(b);
+    getState().setActiveResume(a);
+    getState().updateResume(a, { title: '切换后' });
+
+    getState().undoResume(a);
+    expect(getResume(a).title).toBe('切换前');
+    expect(futureLength(a)).toBe(1);
+    getState().redoResume(a);
+    expect(getResume(a).title).toBe('切换后');
+    expect(pastLength(a)).toBe(2);
+    expect(pastLength(b)).toBe(0);
+    expect(futureLength(b)).toBe(0);
+  });
+});
+
 describe('持久化', () => {
   it('编辑、撤销与重做的结果都会写入 localStorage', () => {
     const storage: Record<string, string> = {};

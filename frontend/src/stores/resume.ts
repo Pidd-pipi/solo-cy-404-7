@@ -223,6 +223,32 @@ function recordHistory(history: ResumeHistory | undefined, snapshot: Resume, mer
   return { past: nextPast, future: [] };
 }
 
+/**
+ * 切走一份简历时封存其栈顶条目的合并键，打断连续编辑的合并链。
+ * 这样切到别的简历再切回来后，对同一字段的修改不会与切换前的编辑合并，
+ * 两次修改可以分别撤销。快照数据不变，仅合并键失效。
+ */
+function sealHistoryTop(history: Record<string, ResumeHistory>, resumeId: string | null): Record<string, ResumeHistory> {
+  if (!resumeId) {
+    return history;
+  }
+  const stack = history[resumeId];
+  if (!stack || stack.past.length === 0) {
+    return history;
+  }
+  const top = stack.past[stack.past.length - 1];
+  if (top.mergeKey === null) {
+    return history;
+  }
+  return {
+    ...history,
+    [resumeId]: {
+      past: [...stack.past.slice(0, -1), { ...top, mergeKey: null }],
+      future: stack.future,
+    },
+  };
+}
+
 /** 应用一次简历内容编辑：更新数据、记录历史；无实际内容变化时不产生历史步。 */
 function applyResumeChange(
   state: Pick<ResumeState, 'resumes' | 'history'>,
@@ -274,10 +300,11 @@ export const useResumeStore = create<ResumeState>((set, get) => ({
   createResume: () => {
     const selectedTemplateId = useTemplateStore.getState().selectedTemplateId;
     const resume = buildResume(selectedTemplateId, `新简历 ${get().resumes.length + 1}`);
-    // 新简历的历史从空开始，基于当前数据重新建立
+    // 新简历的历史从空开始，基于当前数据重新建立；同时封存原活动简历的合并链
     set((state) => ({
       resumes: [resume, ...state.resumes],
       activeResumeId: resume.id,
+      history: sealHistoryTop(state.history, state.activeResumeId),
     }));
     persist(get());
     return resume.id;
@@ -301,10 +328,11 @@ export const useResumeStore = create<ResumeState>((set, get) => ({
       projects: source.projects.map((item) => ({ ...item, id: createId('project') })),
     };
 
-    // 副本是全新简历，不继承源简历的历史
+    // 副本是全新简历，不继承源简历的历史；同时封存原活动简历的合并链
     set((state) => ({
       resumes: [clone, ...state.resumes],
       activeResumeId: clone.id,
+      history: sealHistoryTop(state.history, state.activeResumeId),
     }));
     persist(get());
     return clone.id;
@@ -322,7 +350,17 @@ export const useResumeStore = create<ResumeState>((set, get) => ({
     persist(get());
   },
   setActiveResume: (resumeId) => {
-    set({ activeResumeId: resumeId });
+    set((state) => {
+      // 仅在活动简历真正变化时封存上一份简历的合并链；
+      // 编辑器每次渲染都会用当前 id 重复调用，同 id 时必须保持原样，否则连续输入无法合并
+      if (state.activeResumeId === resumeId) {
+        return state;
+      }
+      return {
+        activeResumeId: resumeId,
+        history: sealHistoryTop(state.history, state.activeResumeId),
+      };
+    });
     persist(get());
   },
   updateResume: (resumeId, patch) => {
