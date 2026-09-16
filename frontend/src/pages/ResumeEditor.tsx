@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Download, LayoutTemplate, UserRound } from 'lucide-react';
+import { Download, LayoutTemplate, Redo2, Undo2, UserRound } from 'lucide-react';
 import { BasicInfoPanel } from '../components/editor/BasicInfoPanel';
 import { ModuleSidebar } from '../components/editor/ModuleSidebar';
 import { Button } from '../components/common/Button';
@@ -21,8 +21,40 @@ export function ResumeEditor() {
   const reorderSections = useResumeStore((state) => state.reorderSections);
   const toggleSection = useResumeStore((state) => state.toggleSection);
   const setActiveResume = useResumeStore((state) => state.setActiveResume);
+  const syncProfileToResume = useResumeStore((state) => state.syncProfileToResume);
+  const undoResume = useResumeStore((state) => state.undoResume);
+  const redoResume = useResumeStore((state) => state.redoResume);
+  const canUndo = useResumeStore((state) => Boolean(id && state.history[id]?.past.length));
+  const canRedo = useResumeStore((state) => Boolean(id && state.history[id]?.future.length));
   const profile = useProfileStore((state) => state.profile);
   const resume = useMemo(() => resumes.find((item) => item.id === id), [id, resumes]);
+
+  useEffect(() => {
+    if (resume) {
+      setActiveResume(resume.id);
+    }
+  }, [resume, setActiveResume]);
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        useResumeStore.getState().undoResume(id);
+      } else if ((key === 'z' && event.shiftKey) || key === 'y') {
+        event.preventDefault();
+        useResumeStore.getState().redoResume(id);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [id]);
 
   if (!resume) {
     return (
@@ -35,12 +67,6 @@ export function ResumeEditor() {
     );
   }
 
-  useEffect(() => {
-    if (resume) {
-      setActiveResume(resume.id);
-    }
-  }, [resume, setActiveResume]);
-
   const handleSorted = (sections: ResumeSection[]) => {
     reorderSections(
       resume.id,
@@ -49,16 +75,7 @@ export function ResumeEditor() {
   };
 
   const syncProfile = () => {
-    updateBasicInfo(resume.id, {
-      fullName: profile.fullName,
-      headline: profile.headline,
-      phone: profile.phone,
-      email: profile.email,
-      location: profile.location,
-      website: profile.website,
-      avatarUrl: profile.avatarUrl,
-    });
-    updateResume(resume.id, { summary: profile.summary });
+    syncProfileToResume(resume.id, profile);
   };
 
   return (
@@ -75,6 +92,26 @@ export function ResumeEditor() {
           <p className="mt-2 text-sm text-[var(--muted)]">左侧模块拖拽排序，中间编辑内容，右侧实时预览。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            aria-label="撤销"
+            className="px-3"
+            disabled={!canUndo}
+            icon={<Undo2 size={16} aria-hidden />}
+            onClick={() => undoResume(resume.id)}
+            title="撤销 (Ctrl+Z)"
+          >
+            撤销
+          </Button>
+          <Button
+            aria-label="重做"
+            className="px-3"
+            disabled={!canRedo}
+            icon={<Redo2 size={16} aria-hidden />}
+            onClick={() => redoResume(resume.id)}
+            title="重做 (Ctrl+Shift+Z)"
+          >
+            重做
+          </Button>
           <select
             className="min-h-10 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-semibold"
             value={resume.templateId}
